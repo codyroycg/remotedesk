@@ -1,26 +1,62 @@
 // RemoteDesk relay server
-// - Serves the technician web console
-// - Agents (remote machines) connect on /agent
+// - Serves the customer "Get support" page (/) and technician console (/console)
+// - Serves agent downloads with this server's address baked in (/download/...)
+// - Agents (remote machines or browser screen-shares) connect on /agent
 // - Technicians connect on /tech (after logging in)
 // - Relays screen frames (agent -> tech) and input/chat (tech -> agent)
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 
-const PORT = parseInt(process.env.PORT || '8080', 10);
-const TECH_PASSWORD = process.env.TECH_PASSWORD;
-const AGENT_KEY = process.env.AGENT_KEY || ''; // required for unattended agents
+// ---------- configuration ----------
+// Settings come from env vars, else data/config.json, which is created with
+// random secrets on first run so the server works with zero setup.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+function loadConfig() {
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
+  let changed = false;
+  if (!cfg.techPassword) { cfg.techPassword = crypto.randomBytes(9).toString('base64url'); changed = true; }
+  if (!cfg.agentKey) { cfg.agentKey = crypto.randomBytes(24).toString('base64url'); changed = true; }
+  if (changed) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
+  }
+  return cfg;
+}
+const cfg = loadConfig();
+const PORT = parseInt(process.env.PORT || cfg.port || '8080', 10);
+const TECH_PASSWORD = process.env.TECH_PASSWORD || cfg.techPassword;
+const AGENT_KEY = process.env.AGENT_KEY || cfg.agentKey; // required for unattended agents
+const PUBLIC_URL = (process.env.PUBLIC_URL || cfg.publicUrl || '').replace(/\/$/, ''); // e.g. https://support.example.com
 const CODE_TTL_MS = 10 * 60 * 1000; // session codes expire if nobody joins
 
-if (!TECH_PASSWORD) {
-  console.error('Set TECH_PASSWORD env var before starting the server.');
-  process.exit(1);
-}
-
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const DOWNLOAD_DIR = path.join(__dirname, 'downloads');
+// Platform -> file name produced by agent/build.py
+const DOWNLOADS = {
+  windows: { file: 'RemoteDesk-windows.exe', label: 'Windows' },
+  linux: { file: 'RemoteDesk-linux', label: 'Linux' },
+  macos: { file: 'RemoteDesk-macos', label: 'macOS' },
+};
+const TRAILER_MAGIC = Buffer.from('RDCFG001');
+
+function availableDownloads() {
+  return Object.entries(DOWNLOADS)
+    .filter(([, d]) => fs.existsSync(path.join(DOWNLOAD_DIR, d.file)))
+    .map(([platform, d]) => ({ platform, label: d.label, url: `/download/${platform}` }));
+}
+// The address agents should connect to, as seen by whoever made this request.
+function agentUrlFor(req) {
+  if (PUBLIC_URL) return PUBLIC_URL.replace(/^http/, 'ws') + '/agent';
+  const https = req.headers['x-forwarded-proto'] === 'https' || req.socket.encrypted;
+  return `${https ? 'wss' : 'ws'}://${req.headers.host}/agent`;
+}
 const techTokens = new Map(); // token -> { user, expires }
 const agents = new Map();     // agentId -> agent record
 const codes = new Map();      // code -> agentId
@@ -46,7 +82,7 @@ function validToken(token) {
   return t;
 }
 function agentSummary(a) {
-  return { id: a.id, name: a.name, os: a.os, user: a.user, unattended: a.unattended, busy: !!a.tech };
+  return { id: a.id, name: a.name, os: a.os, user: a.user, unattended: a.unattended, viewOnly: a.viewOnly, busy: !!a.tech };
 }
 function broadcastAgentList() {
   const list = [...agents.values()].filter(a => a.unattended).map(agentSummary);
@@ -93,9 +129,41 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const urlPath = req.url.split('?')[0];
+
+  if (req.method === 'GET' && urlPath === '/api/downloads') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(availableDownloads()));
+  }
+
+  // Agent download: the prebuilt executable + a trailer holding this server's
+  // address, so the customer just double-clicks it with nothing to configure.
+  const dl = urlPath.match(/^\/download\/(windows|linux|macos)$/);
+  if (req.method === 'GET' && dl) {
+    const d = DOWNLOADS[dl[1]];
+    const file = path.join(DOWNLOAD_DIR, d.file);
+    if (!fs.existsSync(file)) { res.writeHead(404); return res.end('This download has not been built yet.'); }
+    const json = Buffer.from(JSON.stringify({ server: agentUrlFor(req) }));
+    const len = Buffer.alloc(4); len.writeUInt32LE(json.length);
+    const trailer = Buffer.concat([json, len, TRAILER_MAGIC]);
+    const size = fs.statSync(file).size + trailer.length;
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': size,
+      'Content-Disposition': `attachment; filename="${d.file.replace('RemoteDesk-', 'RemoteDesk-Support-')}"`,
+      'Cache-Control': 'no-store',
+    });
+    const stream = fs.createReadStream(file);
+    stream.pipe(res, { end: false });
+    stream.on('end', () => res.end(trailer));
+    stream.on('error', () => res.destroy());
+    return;
+  }
+
   // static files
-  let p = decodeURIComponent(req.url.split('?')[0]);
-  if (p === '/') p = '/index.html';
+  let p = decodeURIComponent(urlPath);
+  if (p === '/') p = '/support.html';
+  if (p === '/console') p = '/console.html';
   const file = path.normalize(path.join(PUBLIC_DIR, p));
   if (!file.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, buf) => {
@@ -147,6 +215,7 @@ agentWss.on('connection', (ws) => {
       if (old) { endSession(old, 'agent reconnected'); old.ws.close(); }
       agent = {
         id, ws, unattended,
+        viewOnly: !!msg.viewOnly, // browser screen-share: no remote control
         name: String(msg.name || 'Unknown').slice(0, 60),
         os: String(msg.os || '').slice(0, 60),
         user: String(msg.user || '').slice(0, 60),
@@ -277,4 +346,18 @@ setInterval(() => {
   }
 }, 30_000);
 
-server.listen(PORT, () => console.log(`RemoteDesk server listening on http://localhost:${PORT}`));
+server.listen(PORT, () => {
+  const lan = Object.values(os.networkInterfaces()).flat()
+    .filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
+  const base = PUBLIC_URL || `http://localhost:${PORT}`;
+  const line = '─'.repeat(60);
+  console.log(`\n${line}\n  RemoteDesk is running\n${line}`);
+  console.log(`  Technician console:  ${base}/console`);
+  console.log(`  Password:            ${process.env.TECH_PASSWORD ? '(from TECH_PASSWORD env var)' : TECH_PASSWORD}`);
+  console.log(`  Customer page:       ${base}/`);
+  if (!PUBLIC_URL) for (const ip of lan) console.log(`                       http://${ip}:${PORT}/  (your network)`);
+  const dls = availableDownloads();
+  console.log(`  Agent downloads:     ${dls.length ? dls.map(d => d.label).join(', ') : 'none built yet (see README: "Build the agent app")'}`);
+  console.log(`  Settings file:       ${CONFIG_FILE}`);
+  console.log(`${line}\n`);
+});

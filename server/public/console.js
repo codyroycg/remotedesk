@@ -27,13 +27,16 @@ $('logout').onclick = () => { sessionStorage.clear(); token = null; ws && ws.clo
 // ---------- websocket ----------
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  let opened = false;
   ws = new WebSocket(`${proto}://${location.host}/tech?token=${encodeURIComponent(token)}`);
   ws.binaryType = 'blob';
-  ws.onopen = () => { $('whoami').textContent = user; show('dashboard'); };
+  ws.onopen = () => { opened = true; $('whoami').textContent = user; show('dashboard'); };
   ws.onclose = () => {
     if (!token) return;
+    if (!opened) { // token rejected (expired or server restarted): sign in again
+      sessionStorage.clear(); token = null; show('login'); return;
+    }
     if (inSession) endSessionUI('Connection to server lost');
-    // token probably expired if we never opened
     setTimeout(() => token && connect(), 2000);
   };
   ws.onmessage = (ev) => {
@@ -54,11 +57,23 @@ function sendMsg(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(ob
 
 if (token) connect(); else show('login');
 
+// Remember the technician's name between visits
+try { $('techName').value = localStorage.getItem('rd_name') || $('techName').value; } catch {}
+$('techName').addEventListener('change', () => { try { localStorage.setItem('rd_name', $('techName').value); } catch {} });
+
+// Link to send customers
+$('customerLink').textContent = location.origin + '/';
+$('copyLink').onclick = async () => {
+  try { await navigator.clipboard.writeText(location.origin + '/'); $('copyLink').textContent = 'Copied'; }
+  catch { $('copyLink').textContent = 'Copy failed'; }
+  setTimeout(() => { $('copyLink').textContent = 'Copy'; }, 1500);
+};
+
 // ---------- dashboard ----------
 $('joinForm').addEventListener('submit', (e) => {
   e.preventDefault();
   $('joinStatus').textContent = 'Connecting…';
-  sendMsg({ type: 'join', code: $('code').value.trim() });
+  sendMsg({ type: 'join', code: $('code').value.replace(/\D/g, '') });
 });
 function renderAgents(list) {
   const ul = $('agentList');
@@ -92,6 +107,10 @@ function startSessionUI(agent) {
   $('sessName').textContent = agent.name;
   $('sessInfo').textContent = agent.os + (agent.user ? ' · ' + agent.user : '');
   $('chatLog').innerHTML = '';
+  // Browser screen-shares can't be controlled; lock the console to view only.
+  $('viewOnly').checked = !!agent.viewOnly;
+  $('viewOnly').disabled = !!agent.viewOnly;
+  if (agent.viewOnly) $('sessInfo').textContent += ' · view only (shared from browser)';
   show('session');
   canvas.focus();
   sendMsg({ type: 'settings', quality: +$('quality').value });

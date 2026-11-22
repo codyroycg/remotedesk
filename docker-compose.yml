@@ -1,0 +1,26 @@
+# Production setup with automatic HTTPS (Let's Encrypt via Caddy).
+#   1. Point a DNS name (e.g. support.example.com) at this machine; open ports 80 + 443.
+#   2. DOMAIN=support.example.com docker compose up -d
+#   3. docker compose logs remotedesk   (shows the technician password)
+services:
+  remotedesk:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: https://${DOMAIN:?set DOMAIN, e.g. DOMAIN=support.example.com}
+    volumes:
+      - remotedesk-data:/app/data
+      - ./server/downloads:/app/downloads:ro
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    command: caddy reverse-proxy --from ${DOMAIN} --to remotedesk:8080
+    volumes:
+      - caddy-data:/data
+    depends_on: [remotedesk]
+
+volumes:
+  remotedesk-data:
+  caddy-data:

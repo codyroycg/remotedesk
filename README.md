@@ -1,85 +1,132 @@
 # RemoteDesk
 
-A self-hosted remote support tool in the spirit of ScreenConnect: a technician
-opens a web console, the customer runs a small agent and reads out a 6-digit
-code, and the technician can see and control their screen after they accept.
+Self-hosted remote support, in the spirit of ScreenConnect. Your customer
+opens a web page, gets a 6-digit code, and reads it to you. You type it in,
+they click **Allow**, and you can see and control their screen.
+
+## Quick start (2 minutes)
+
+**1. Start the server.** You only need [Node.js](https://nodejs.org) 18+.
+
+- Windows: double-click `start.bat`
+- macOS / Linux: `./start.sh`
+
+It prints everything you need:
 
 ```
- Technician browser  <--wss-->  Relay server (Node)  <--wss-->  Host agent (Python)
-   console UI                   auth, codes, relay              screen capture + input
+  Technician console:  http://localhost:8080/console
+  Password:            C8WUzGO2vFYI
+  Customer page:       http://localhost:8080/
+                       http://192.168.1.20:8080/  (your network)
 ```
 
-Both sides connect *outbound* to the relay, so the customer needs no port
-forwarding or firewall changes.
+The password is generated on first run and saved in `server/data/config.json`
+(change it there and restart if you like).
 
-## Features
+**2. Open the technician console** at `/console` and sign in.
 
-- **Attended sessions**: one-time 6-digit codes that expire after 10 minutes.
-- **Consent prompt** on the host before anyone can connect (denied automatically after about 55 seconds).
-- **Always-on-top session banner** on the host with chat and an **End session** button.
-- **Unattended access** for machines you administer (requires a shared `AGENT_KEY`).
-- Remote screen in the browser with mouse, scroll wheel and keyboard control, a quality setting, fit-to-window and view-only mode.
-- Chat between technician and end user.
-- Change detection plus ack-based flow control: frames are only sent when the screen changes, and never faster than the client can draw them.
-- Password login for technicians, with rate limiting and constant-time comparison.
+**3. Send the customer to the customer page** (the console has a Copy button).
+They pick one of two options:
 
-## Run it
-
-### 1. Relay server (Node 18+)
-
-```bash
-cd server && npm install
-```
-
-```bash
-TECH_PASSWORD='choose-a-strong-one' AGENT_KEY='long-random-secret' npm start
-```
-
-Open http://localhost:8080 and sign in.
-
-### 2. Agent, on the computer being supported (Python 3.9+)
-
-```bash
-cd agent && pip install -r requirements.txt
-```
-
-```bash
-python agent.py --server ws://YOUR-SERVER:8080/agent
-```
-
-It prints a code. Enter it in the console; the user clicks **Allow**.
-
-Unattended (your own machines only):
-
-```bash
-python agent.py --server wss://support.example.com/agent --unattended --key 'long-random-secret'
-```
-
-Other options: `--name`, `--monitor N` (0 = all screens), `--fps`, `--quality`,
-`--max-width`, `--auto-accept` (skips the prompt; for testing).
-
-## Deploying for real
-
-- **Use TLS.** Put the server behind Caddy or nginx with a certificate and use
-  `wss://` URLs. Without TLS, screen contents and the password travel in clear text.
-- Change `TECH_PASSWORD` and `AGENT_KEY` to long random values.
-- Package the agent as a single executable for customers, for example
-  `pyinstaller --onefile --add-data "ui.py:." agent.py`, with `--server` baked in as the default.
-- The agent's GUI needs Tk (`python3-tk` on Debian/Ubuntu). Without it, consent is asked in the terminal.
-
-## Platform notes
-
-| | Screen capture | Input |
+| Option | Customer needs | You can |
 |---|---|---|
-| Windows | yes | yes (cannot control UAC prompts or the login screen unless it runs as a service) |
-| macOS | needs the Screen Recording permission | needs the Accessibility permission |
-| Linux X11 | yes | yes |
-| Linux Wayland | no (needs the PipeWire portal) | no |
+| **Download the support app** | Double-click the file | See **and control** their screen |
+| **Share from the browser** | Nothing (Chrome, Edge, Firefox, Safari on a computer) | See their screen (view only) |
 
-## Roadmap ideas
+Either way they get a code. Enter it in the console and they click **Allow**.
 
-- WebRTC/H.264 video for much lower bandwidth (aiortc on the agent side)
-- File transfer, clipboard sync, remote terminal
-- Multiple technician accounts with roles, MFA and a session audit log/recording
-- A Windows service build for unattended access, so it works at the login screen and with UAC
-- Signed installers and auto-update
+> Browser sharing only works over **https://** (or on `localhost`), because browsers
+> require a secure page for screen capture. For use over the internet, set up HTTPS (below).
+
+## Build the agent app
+
+The "Download the support app" button appears once a built app is in
+`server/downloads/`. Each download automatically has your server's address
+embedded, so customers have nothing to type.
+
+**Easiest: let GitHub build all three** (Windows, macOS, Linux). Push this
+repo to GitHub, open **Actions → Build support app → Run workflow**, then
+download the artifacts and drop the files into `server/downloads/`.
+
+**Or build for the OS you're on** (Python 3.9+ with Tk):
+
+```bash
+python agent/build.py
+```
+
+## Put it on the internet with HTTPS
+
+You need a server with Docker, and a domain name pointing at it (ports 80 and 443 open):
+
+```bash
+DOMAIN=support.example.com docker compose up -d
+```
+
+```bash
+docker compose logs remotedesk
+```
+
+Caddy gets a Let's Encrypt certificate automatically. The logs show the technician
+password. Built apps in `server/downloads/` are served automatically.
+
+Without Docker: run `./start.sh` behind any HTTPS reverse proxy (Caddy, nginx) and
+set `"publicUrl": "https://support.example.com"` in `server/data/config.json`.
+
+## Unattended access (your own machines)
+
+For computers you manage, run the agent in unattended mode so it shows up in
+the console's **Unattended machines** list, with no code or click needed. The key is
+`agentKey` in `server/data/config.json`:
+
+```bash
+pip install -r agent/requirements.txt
+```
+
+```bash
+python agent/agent.py --server support.example.com --unattended --key YOUR_AGENT_KEY
+```
+
+## Settings
+
+`server/data/config.json` (environment variables override it):
+
+| Setting | Env var | Default |
+|---|---|---|
+| `techPassword` | `TECH_PASSWORD` | random, generated on first run |
+| `agentKey` | `AGENT_KEY` | random, generated on first run |
+| `port` | `PORT` | 8080 |
+| `publicUrl` | `PUBLIC_URL` | auto-detected from the browser's address |
+
+Agent options (all optional): `--server`, `--name`, `--monitor N` (0 = all
+screens), `--fps`, `--quality`, `--cli` (terminal instead of window),
+`--auto-accept` (skip the Allow prompt; testing only).
+
+## Good to know
+
+- **Windows SmartScreen** warns about unsigned apps ("Windows protected your PC" → More info → Run anyway).
+  The customer page explains this. A code-signing certificate removes the warning.
+- **macOS** asks the customer to grant Screen Recording and Accessibility permissions the first time,
+  and blocks unsigned downloaded apps (right-click → Open). The macOS app also downloads without its
+  "executable" permission, so for Mac customers browser sharing is usually easier until the app is signed and notarized.
+- **Linux**: X11 only; Wayland sessions can't be captured or controlled by the app (browser sharing still works).
+- **Windows**: the app can't control admin (UAC) prompts or the login screen. That needs a Windows service.
+
+## How it works
+
+```
+ Technician browser  <--wss-->  Relay server (Node)  <--wss-->  Support app (Python) or customer's browser
+   /console                     auth, codes, relay              screen capture + input
+```
+
+Both sides connect *out* to the server, so customers need no firewall or router changes.
+Screens are sent as JPEG frames only when something changes, paced by the viewer's acknowledgements.
+
+| Path | What |
+|---|---|
+| `start.sh`, `start.bat` | one-command server start |
+| `server/server.js` | relay server, login, codes, downloads |
+| `server/public/support.*` | customer page (+ browser sharing) |
+| `server/public/console.*` | technician console |
+| `agent/agent.py` | support app (window UI, capture, input) |
+| `agent/build.py` | packages the support app into a single executable |
+| `docker-compose.yml` | production deploy with automatic HTTPS |

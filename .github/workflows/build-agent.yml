@@ -1,0 +1,44 @@
+# Builds the support app for Windows, macOS and Linux.
+# Download the results from the workflow run's "Artifacts" section (or from the
+# GitHub release when you push a tag like v1.0) and put them in server/downloads/.
+name: Build support app
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    paths: ["agent/**", ".github/workflows/build-agent.yml"]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+      - run: python agent/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RemoteDesk-${{ runner.os }}
+          path: server/downloads/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

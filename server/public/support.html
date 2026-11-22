@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote Support</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="support">
+<main class="support-main">
+  <h1>Get remote support</h1>
+  <p class="muted lead">Your technician will ask you for a 6-digit code. Pick one of the options below to get it.</p>
+
+  <!-- Choose how to connect -->
+  <div id="choose" class="options">
+    <div id="downloadCard" class="card option hidden">
+      <span class="badge">Recommended</span>
+      <h2>Download the support app</h2>
+      <p class="muted">Lets your technician see your screen <b>and</b> use your mouse and keyboard to fix things. Nothing is installed: it closes when you're done.</p>
+      <a id="downloadBtn" class="button big" href="#">Download</a>
+      <p class="muted small">Open the downloaded file. It will show your code.
+        <span id="otherDownloads"></span></p>
+      <details class="muted small" id="winHelp">
+        <summary>Windows says "Windows protected your PC"?</summary>
+        Click <b>More info</b>, then <b>Run anyway</b>. This happens with apps that aren't code-signed.
+      </details>
+    </div>
+
+    <div class="card option">
+      <h2>Share your screen from this browser</h2>
+      <p class="muted">No download needed. Your technician can <b>see</b> your screen and chat with you, but can't control it.</p>
+      <label class="muted small">Your name (optional) <input id="custName" placeholder="e.g. Alex"></label>
+      <button id="shareBtn" class="big">Share my screen</button>
+      <p id="shareNote" class="muted small"></p>
+    </div>
+  </div>
+
+  <!-- Browser screen-share session -->
+  <div id="sharePanel" class="card hidden">
+    <div id="codeBox">
+      <p class="muted">Read this code to your technician:</p>
+      <div id="code" class="code">··· ···</div>
+      <p id="status" class="muted">Connecting…</p>
+    </div>
+
+    <div id="request" class="request hidden">
+      <p><b id="reqTech">Your technician</b> wants to see your screen.</p>
+      <p class="muted small">After you click Allow, your browser will ask which screen or window to share.</p>
+      <div class="row">
+        <button id="denyBtn" class="ghost">Deny</button>
+        <button id="allowBtn">Allow</button>
+      </div>
+    </div>
+
+    <div id="live" class="hidden">
+      <div class="live-bar">● Sharing your screen with <b id="liveTech"></b></div>
+      <div id="chatLog" class="chat-log boxed"></div>
+      <form id="chatForm" class="row">
+        <input id="chatInput" placeholder="Message your technician…" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+      <button id="stopBtn" class="danger wide">Stop sharing</button>
+    </div>
+
+    <div id="ended" class="hidden">
+      <p id="endedMsg">Session ended.</p>
+      <button id="againBtn" class="ghost">Start over</button>
+    </div>
+  </div>
+</main>
+<video id="video" muted playsinline class="hidden"></video>
+<script src="/support.js"></script>
+</body>
+</html>

@@ -1,3 +1,8 @@
 node_modules/
 __pycache__/
 *.pyc
+server/data/
+server/downloads/
+agent/build/
+agent/dist/
+*.spec
