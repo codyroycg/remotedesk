@@ -1,12 +1,17 @@
-# Builds the support app for Windows, macOS and Linux.
+# Builds the support app for Windows, macOS and Linux on every push to main.
 # Download the results from the workflow run's "Artifacts" section (or from the
-# GitHub release when you push a tag like v1.0) and put them in server/downloads/.
+# GitHub release when you create a tag like v1.0) and put them in server/downloads/.
 name: Build support app
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ["v*"]
-    paths: ["agent/**", ".github/workflows/build-agent.yml"]
+
+# A newer push to the same branch cancels the older, still-running build.
+concurrency:
+  group: build-agent-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
