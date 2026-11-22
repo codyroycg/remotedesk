@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteDesk Console</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- Login -->
+<section id="login" class="view center">
+  <form id="loginForm" class="card">
+    <h1>RemoteDesk</h1>
+    <p class="muted">Technician console</p>
+    <label>Your name <input id="techName" value="Technician" required></label>
+    <label>Password <input id="password" type="password" required autofocus></label>
+    <button type="submit">Sign in</button>
+    <p id="loginError" class="error"></p>
+  </form>
+</section>
+
+<!-- Dashboard -->
+<section id="dashboard" class="view hidden">
+  <header class="bar">
+    <strong>RemoteDesk</strong>
+    <span class="spacer"></span>
+    <span id="whoami" class="muted"></span>
+    <button id="logout" class="ghost">Sign out</button>
+  </header>
+  <main class="dash">
+    <div class="card">
+      <h2>Support session</h2>
+      <p class="muted">Ask the customer to run the agent and read you the 6-digit code.</p>
+      <form id="joinForm" class="row">
+        <input id="code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="123456" required>
+        <button type="submit">Connect</button>
+      </form>
+      <p id="joinStatus" class="muted"></p>
+    </div>
+    <div class="card">
+      <h2>Unattended machines</h2>
+      <ul id="agentList" class="list"><li class="muted">No machines online.</li></ul>
+    </div>
+  </main>
+</section>
+
+<!-- Session -->
+<section id="session" class="view hidden">
+  <header class="bar">
+    <strong id="sessName">Remote</strong>
+    <span id="sessInfo" class="muted"></span>
+    <span class="spacer"></span>
+    <label class="muted">Quality
+      <select id="quality">
+        <option value="40">Low</option>
+        <option value="60" selected>Medium</option>
+        <option value="80">High</option>
+      </select>
+    </label>
+    <label class="muted"><input type="checkbox" id="fit" checked> Fit</label>
+    <label class="muted"><input type="checkbox" id="viewOnly"> View only</label>
+    <button id="chatToggle" class="ghost">Chat</button>
+    <button id="disconnect" class="danger">Disconnect</button>
+  </header>
+  <div class="stage-wrap">
+    <div id="stage" class="stage fit">
+      <canvas id="screen" tabindex="0"></canvas>
+    </div>
+    <aside id="chat" class="chat hidden">
+      <div id="chatLog" class="chat-log"></div>
+      <form id="chatForm" class="row">
+        <input id="chatInput" placeholder="Message the remote user…" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </aside>
+  </div>
+  <footer class="status muted"><span id="fps">0 fps</span> · <span id="kbps">0 KB/s</span> · <span id="res"></span></footer>
+</section>
+
+<script src="/app.js"></script>
+</body>
+</html>
